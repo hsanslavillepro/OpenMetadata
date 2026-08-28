@@ -17,6 +17,7 @@ from copy import deepcopy  # noqa: I001
 from typing import Optional, cast
 from urllib.parse import quote_plus
 
+import requests
 from requests import Session
 from sqlalchemy.engine import Engine
 from trino.auth import BasicAuthentication, JWTAuthentication, OAuth2Authentication
@@ -32,6 +33,7 @@ from metadata.generated.schema.entity.services.connections.database.common impor
     basicAuth,
     jwtAuth,
     noConfigAuthenticationTypes,
+    oidcAuth,
 )
 from metadata.generated.schema.entity.services.connections.database.trinoConnection import (
     TrinoConnection as TrinoConnectionConfig,
@@ -54,6 +56,9 @@ from metadata.ingestion.ometa.ometa_api import OpenMetadata
 from metadata.ingestion.source.database.trino.queries import TRINO_GET_DATABASE
 from metadata.utils.constants import THREE_MIN
 from metadata.utils.credentials import get_azure_access_token
+
+
+TRINO_OIDC_TOKEN_TIMEOUT = 30
 
 
 # pylint: disable=unused-argument
@@ -154,6 +159,10 @@ class TrinoConnection(BaseConnection[TrinoConnectionConfig, Engine]):
             connection_dict["auth"] = TrinoConnection.get_jwt_auth_dict(connection_copy)
             connection_dict["http_scheme"] = "https"
 
+        elif isinstance(connection_copy.authType, oidcAuth.OidcAuth):
+            connection_dict["auth"] = TrinoConnection.get_oidc_auth_dict(connection_copy)
+            connection_dict["http_scheme"] = "https"
+
         elif hasattr(connection_copy.authType, "azureConfig"):
             connection_dict["auth"] = TrinoConnection.get_azure_auth_dict(connection_copy)
             connection_dict["http_scheme"] = "https"
@@ -212,6 +221,9 @@ class TrinoConnection(BaseConnection[TrinoConnectionConfig, Engine]):
 
         elif isinstance(connection.authType, jwtAuth.JwtAuth):
             TrinoConnection.set_jwt_auth(connection, connection_args)
+
+        elif isinstance(connection.authType, oidcAuth.OidcAuth):
+            TrinoConnection.set_oidc_auth(connection, connection_args)
 
         elif hasattr(connection.authType, "azureConfig"):
             TrinoConnection.set_azure_auth(connection, connection_args)
@@ -273,6 +285,56 @@ class TrinoConnection(BaseConnection[TrinoConnectionConfig, Engine]):
 
         if connection_args.root.get("http_scheme") is None:
             connection_args.root["http_scheme"] = "https"
+
+    @staticmethod
+    def get_oidc_auth_dict(connection: TrinoConnectionConfig) -> dict:
+        """
+        Get the oidc auth dictionary for the trino connection
+        """
+        return {
+            "authType": "jwt",
+            "jwt": TrinoConnection.get_oidc_token(connection),
+        }
+
+    @staticmethod
+    def set_oidc_auth(connection: TrinoConnectionConfig, connection_args: ConnectionArguments) -> None:
+        """
+        Set the oidc auth for the trino connection
+        """
+        assert connection_args.root is not None
+
+        connection_args.root["auth"] = JWTAuthentication(TrinoConnection.get_oidc_token(connection))
+
+        if connection_args.root.get("http_scheme") is None:
+            connection_args.root["http_scheme"] = "https"
+
+    @staticmethod
+    def get_oidc_token(connection: TrinoConnectionConfig) -> str:
+        """
+        Get the oidc token for the trino connection
+        """
+        auth_type = cast(oidcAuth.OidcAuth, connection.authType)  # noqa: TC006
+        data = {
+            "grant_type": "client_credentials",
+            "client_id": auth_type.clientId,
+            "client_secret": auth_type.clientSecret.get_secret_value(),
+        }
+        if auth_type.scope:
+            data["scope"] = auth_type.scope
+
+        response = requests.post(
+            str(auth_type.tokenUrl),
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=TRINO_OIDC_TOKEN_TIMEOUT,
+        )
+        response.raise_for_status()
+
+        access_token = response.json().get("access_token")
+        if not access_token:
+            raise ValueError("OIDC token response did not include an access_token")
+
+        return access_token
 
     @staticmethod
     def get_azure_auth_dict(connection: TrinoConnectionConfig) -> dict:

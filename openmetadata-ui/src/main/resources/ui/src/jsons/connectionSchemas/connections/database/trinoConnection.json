@@ -84,6 +84,43 @@
         },
         {
           "$schema": "http://json-schema.org/draft-07/schema#",
+          "title": "OIDC Auth",
+          "description": "OIDC client credentials authentication.",
+          "javaType": "org.openmetadata.schema.services.connections.database.common.OidcAuth",
+          "type": "object",
+          "properties": {
+            "clientId": {
+              "title": "Client ID",
+              "description": "OIDC client ID.",
+              "type": "string"
+            },
+            "clientSecret": {
+              "title": "Client Secret",
+              "description": "OIDC client secret.",
+              "type": "string",
+              "format": "password"
+            },
+            "tokenUrl": {
+              "title": "Token URL",
+              "description": "OIDC token endpoint used to exchange client credentials for an access token.",
+              "type": "string",
+              "format": "uri"
+            },
+            "scope": {
+              "title": "Scope",
+              "description": "Optional space-separated OIDC scopes requested from the token endpoint.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "clientId",
+            "clientSecret",
+            "tokenUrl"
+          ]
+        },
+        {
+          "$schema": "http://json-schema.org/draft-07/schema#",
           "title": "Azure Configuration Source",
           "description": "Azure Database Connection Config",
           "type": "object",
