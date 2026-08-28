@@ -48,6 +48,9 @@
           "$ref": "./common/jwtAuth.json"
         },
         {
+          "$ref": "./common/oidcAuth.json"
+        },
+        {
           "$ref": "./common/azureConfig.json"
         },
         {
